@@ -30,16 +30,29 @@ export const api = {
     const d = await request<{ ok: true; data: { user: User } }>('/api/me')
     return d.data.user
   },
-  registerOptions: (username: string) =>
-    request<{ ok: true; data: { challengeId: string; options: any } }>('/api/auth/register-options', {
-      method: 'POST',
-      body: JSON.stringify({ username }),
-    }),
+  // 注册：支持 仅密码 / 仅通行密钥 / 密码+通行密钥
+  // 返回 next: 'passkey'（继续通行密钥注册） | 'done'（已建立会话）
+  register: (payload: {
+    username: string
+    password?: string
+    email?: string
+    setupPasskey?: boolean
+  }) =>
+    request<{ ok: true; data: { next: string; challengeId?: string; options?: any; user?: User } }>(
+      '/api/auth/register',
+      { method: 'POST', body: JSON.stringify(payload) }
+    ),
   registerVerify: (payload: { challengeId: string; username: string; credential: any }) =>
     request<{ ok: true; data: { user: User } }>('/api/auth/register-verify', {
       method: 'POST',
       body: JSON.stringify(payload),
     }),
+  // 密码登录：返回 next: '2fa'（需通行密钥第二步） | 'done'
+  login: (payload: { username: string; password: string }) =>
+    request<{ ok: true; data: { next: string; challengeId?: string; options?: any; user?: User } }>(
+      '/api/auth/login',
+      { method: 'POST', body: JSON.stringify(payload) }
+    ),
   loginOptions: (username: string) =>
     request<{ ok: true; data: { challengeId: string; options: any } }>('/api/auth/login-options', {
       method: 'POST',
@@ -50,7 +63,55 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(payload),
     }),
+  // 找回密码 / 重置
+  forgot: (username: string) =>
+    request<{ ok: true; message?: string; data?: { resetLink: string } }>('/api/auth/forgot', {
+      method: 'POST',
+      body: JSON.stringify({ username }),
+    }),
+  resetPassword: (token: string, newPassword: string) =>
+    request<{ ok: true; data: { done: boolean } }>('/api/auth/reset', {
+      method: 'POST',
+      body: JSON.stringify({ token, newPassword }),
+    }),
   logout: () => request<{ ok: true }>('/api/auth/logout', { method: 'POST' }),
+
+  // 账户设置
+  account: () =>
+    request<{
+      ok: true
+      data: {
+        username: string
+        email: string | null
+        hasPassword: boolean
+        passkeys: { id: string; createdAt: number }[]
+      }
+    }>('/api/account'),
+  updateEmail: (email: string) =>
+    request<{ ok: true; data: { email: string | null } }>('/api/account', {
+      method: 'PATCH',
+      body: JSON.stringify({ email }),
+    }),
+  changePassword: (currentPassword: string | null, newPassword: string) =>
+    request<{ ok: true; data: { done: boolean } }>('/api/account/password', {
+      method: 'POST',
+      body: JSON.stringify({ currentPassword, newPassword }),
+    }),
+  addPasskeyOptions: () =>
+    request<{ ok: true; data: { challengeId: string; options: any } }>('/api/account/passkey', {
+      method: 'POST',
+      body: JSON.stringify({ step: 'options' }),
+    }),
+  addPasskeyVerify: (challengeId: string, credential: any) =>
+    request<{ ok: true; data: { done: boolean } }>('/api/account/passkey', {
+      method: 'POST',
+      body: JSON.stringify({ step: 'verify', challengeId, credential }),
+    }),
+  deletePasskey: (passkeyId: string) =>
+    request<{ ok: true; data: { done: boolean } }>('/api/account/passkey', {
+      method: 'DELETE',
+      body: JSON.stringify({ passkeyId }),
+    }),
 
   getData: async (): Promise<BookmarkData> => {
     const d = await request<{ ok: true; data: BookmarkData }>('/api/data')

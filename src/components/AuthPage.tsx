@@ -1,31 +1,155 @@
-import { useState } from 'react'
-import { Bookmark, Fingerprint, ShieldCheck } from 'lucide-react'
-import { registerWithPasskey, loginWithPasskey } from '../webauthn'
-import { Button, Input } from './ui'
+import { useEffect, useState } from 'react'
+import { Bookmark, Fingerprint, KeyRound, Mail, ShieldCheck, ArrowLeft } from 'lucide-react'
+import { api } from '../api'
+import {
+  registerWithOptions,
+  authenticateWithOptions,
+  loginWithPasskey,
+} from '../webauthn'
+import { Button, Input, Field } from './ui'
 import type { User } from '../types'
 
+type View = 'login' | 'register' | 'forgot' | 'reset'
+
 export default function AuthPage({ onAuth }: { onAuth: (u: User) => void }) {
-  const [mode, setMode] = useState<'login' | 'register'>('login')
-  const [username, setUsername] = useState('')
+  const [view, setView] = useState<View>('login')
+  // 从 URL 读取重置 token：/?reset=xxx
+  const [resetToken] = useState(() => new URLSearchParams(location.search).get('reset') || '')
+
+  // 通用状态
   const [loading, setLoading] = useState(false)
   const [err, setErr] = useState('')
+  const [info, setInfo] = useState('')
 
-  const submit = async () => {
+  // 登录 / 注册字段
+  const [username, setUsername] = useState('')
+  const [password, setPassword] = useState('')
+  const [email, setEmail] = useState('')
+  const [setupPasskey, setSetupPasskey] = useState(false)
+  const [password2, setPassword2] = useState('')
+  const [forgotUser, setForgotUser] = useState('')
+
+  useEffect(() => {
+    if (resetToken) setView('reset')
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  const reset = (v: View) => {
+    setView(v)
+    setErr('')
+    setInfo('')
+  }
+
+  // ---------- 登录 ----------
+  const submitLogin = async () => {
     const name = username.trim()
-    if (!name) {
-      setErr('请输入用户名')
-      return
-    }
+    if (!name) return setErr('请输入用户名')
+    if (!password) return setErr('请输入密码')
     setLoading(true)
     setErr('')
     try {
-      const user =
-        mode === 'register'
-          ? await registerWithPasskey(name)
-          : await loginWithPasskey(name)
+      const d = await api.login({ username: name, password })
+      if (d.data.next === '2fa') {
+        // 双重认证：密码正确，还需通行密钥
+        const user = await authenticateWithOptions(d.data.options!, d.data.challengeId!)
+        onAuth(user)
+        return
+      }
+      onAuth(d.data.user!)
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : '登录失败，请重试')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const submitPasskeyLogin = async () => {
+    const name = username.trim()
+    if (!name) return setErr('请输入用户名')
+    setLoading(true)
+    setErr('')
+    try {
+      const user = await loginWithPasskey(name)
       onAuth(user)
     } catch (e) {
+      setErr(e instanceof Error ? e.message : '通行密钥登录失败')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  // ---------- 注册 ----------
+  const submitRegister = async () => {
+    const name = username.trim()
+    if (!name) return setErr('请输入用户名')
+    if (!password && !setupPasskey) return setErr('请设置密码或勾选启用通行密钥')
+    if (password && password.length < 8) return setErr('密码至少需要 8 位')
+    if (password !== password2) return setErr('两次输入的密码不一致')
+    setLoading(true)
+    setErr('')
+    try {
+      const d = await api.register({
+        username: name,
+        password: password || undefined,
+        email: email.trim() || undefined,
+        setupPasskey,
+      })
+      if (d.data.next === 'passkey') {
+        const user = await registerWithOptions(
+          d.data.options!,
+          name,
+          d.data.challengeId!
+        )
+        onAuth(user)
+        return
+      }
+      onAuth(d.data.user!)
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : '注册失败，请重试')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  // ---------- 找回密码 ----------
+  const submitForgot = async () => {
+    const name = forgotUser.trim()
+    if (!name) return setErr('请输入用户名')
+    setLoading(true)
+    setErr('')
+    setInfo('')
+    try {
+      const d = await api.forgot(name)
+      setInfo(d.message || '已发送')
+      if (d.data?.resetLink) {
+        setInfo(`${d.message || '重置链接'}：${d.data.resetLink}`)
+      }
+    } catch (e) {
       setErr(e instanceof Error ? e.message : '操作失败，请重试')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  // ---------- 重置密码 ----------
+  const submitReset = async () => {
+    if (!resetToken) return setErr('重置链接无效，请重新申请')
+    if (password.length < 8) return setErr('新密码至少需要 8 位')
+    if (password !== password2) return setErr('两次输入的密码不一致')
+    setLoading(true)
+    setErr('')
+    try {
+      await api.resetPassword(resetToken, password)
+      // 清除 URL 中的 token
+      const u = new URL(location.href)
+      u.searchParams.delete('reset')
+      history.replaceState(null, '', u)
+      setInfo('密码已重置，请使用新密码登录')
+      setView('login')
+      setPassword('')
+      setPassword2('')
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : '重置失败，请重试')
     } finally {
       setLoading(false)
     }
@@ -45,60 +169,218 @@ export default function AuthPage({ onAuth }: { onAuth: (u: User) => void }) {
           </div>
           <h1 className="text-2xl font-bold text-white">CloudFav 云收藏夹</h1>
           <p className="mt-1 text-sm text-indigo-100">
-            基于 Cloudflare 的多用户云书签 · Passkey 免密登录
+            基于 Cloudflare 的多用户云书签 · 密码 / 通行密钥 / 双重认证
           </p>
         </div>
 
         <div className="rounded-2xl bg-white/95 p-6 shadow-2xl backdrop-blur dark:bg-slate-900/95 sm:p-7">
-          <div className="mb-5 grid grid-cols-2 gap-1 rounded-xl bg-slate-100 p-1 dark:bg-slate-800">
-            {(['login', 'register'] as const).map((m) => (
-              <button
-                key={m}
-                onClick={() => {
-                  setMode(m)
-                  setErr('')
-                }}
-                className={`rounded-lg py-2 text-sm font-medium transition ${
-                  mode === m
-                    ? 'bg-white text-indigo-600 shadow dark:bg-slate-900 dark:text-indigo-400'
-                    : 'text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200'
-                }`}
-              >
-                {m === 'login' ? '登录' : '注册'}
-              </button>
-            ))}
-          </div>
+          {/* 视图切换 */}
+          {view !== 'forgot' && view !== 'reset' && (
+            <div className="mb-5 grid grid-cols-2 gap-1 rounded-xl bg-slate-100 p-1 dark:bg-slate-800">
+              {(['login', 'register'] as const).map((m) => (
+                <button
+                  key={m}
+                  onClick={() => reset(m)}
+                  className={`rounded-lg py-2 text-sm font-medium transition ${
+                    view === m
+                      ? 'bg-white text-indigo-600 shadow dark:bg-slate-900 dark:text-indigo-400'
+                      : 'text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200'
+                  }`}
+                >
+                  {m === 'login' ? '登录' : '注册'}
+                </button>
+              ))}
+            </div>
+          )}
 
           <div className="space-y-4">
-            <Input
-              placeholder="用户名"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && submit()}
-              autoComplete="username"
-              autoFocus
-            />
-
             {err && (
               <p className="rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-600 dark:bg-rose-950/50 dark:text-rose-300">
                 {err}
               </p>
             )}
+            {info && (
+              <p className="break-all rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300">
+                {info}
+              </p>
+            )}
 
-            <Button
-              onClick={submit}
-              loading={loading}
-              className="w-full py-2.5 text-base"
-            >
-              <Fingerprint className="h-5 w-5" />
-              {mode === 'register' ? '注册并创建通行密钥' : '使用通行密钥登录'}
-            </Button>
+            {/* ===== 登录 ===== */}
+            {view === 'login' && (
+              <>
+                <Input
+                  placeholder="用户名"
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
+                  autoComplete="username"
+                  autoFocus
+                />
+                <Input
+                  type="password"
+                  placeholder="密码"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && submitLogin()}
+                  autoComplete="current-password"
+                />
+                <Button
+                  onClick={submitLogin}
+                  loading={loading}
+                  className="w-full py-2.5 text-base"
+                >
+                  <KeyRound className="h-5 w-5" />
+                  密码登录
+                </Button>
+                <div className="flex items-center justify-between text-sm">
+                  <button
+                    onClick={() => reset('forgot')}
+                    className="text-slate-500 hover:text-indigo-500 dark:text-slate-400 dark:hover:text-indigo-400"
+                  >
+                    忘记密码？
+                  </button>
+                  <button
+                    onClick={submitPasskeyLogin}
+                    disabled={loading}
+                    className="inline-flex items-center gap-1 text-slate-500 hover:text-indigo-500 disabled:opacity-50 dark:text-slate-400 dark:hover:text-indigo-400"
+                  >
+                    <Fingerprint className="h-4 w-4" />
+                    使用通行密钥登录
+                  </button>
+                </div>
+              </>
+            )}
 
-            <p className="flex items-start gap-2 text-xs leading-relaxed text-slate-500 dark:text-slate-400">
-              <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-indigo-400" />
-              使用 Passkey（指纹 / 面容 / 安全密钥 / 系统密码）进行无密码认证，凭据仅保存在本机，
-              服务器不存储任何密码。首次注册后，登录时输入用户名并完成系统验证即可。
-            </p>
+            {/* ===== 注册 ===== */}
+            {view === 'register' && (
+              <>
+                <Field
+                  label="用户名"
+                  hint={<span className="text-xs font-normal text-slate-400">2-32 位</span>}
+                >
+                  <Input
+                    placeholder="用于登录的用户名"
+                    value={username}
+                    onChange={(e) => setUsername(e.target.value)}
+                    autoComplete="username"
+                    autoFocus
+                  />
+                </Field>
+                <Field label="密码" hint={<span className="text-xs font-normal text-slate-400">至少 8 位</span>}>
+                  <Input
+                    type="password"
+                    placeholder="设置登录密码"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    autoComplete="new-password"
+                  />
+                </Field>
+                <Input
+                  type="password"
+                  placeholder="确认密码"
+                  value={password2}
+                  onChange={(e) => setPassword2(e.target.value)}
+                  autoComplete="new-password"
+                />
+                <Field label="邮箱（可选）" hint={<span className="text-xs font-normal text-slate-400">用于找回密码</span>}>
+                  <Input
+                    type="email"
+                    placeholder="you@example.com"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    autoComplete="email"
+                  />
+                </Field>
+                <label className="flex cursor-pointer items-start gap-2 text-sm text-slate-600 dark:text-slate-300">
+                  <input
+                    type="checkbox"
+                    checked={setupPasskey}
+                    onChange={(e) => setSetupPasskey(e.target.checked)}
+                    className="mt-0.5 h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                  />
+                  <span>
+                    同时启用通行密钥（可选）
+                    <span className="block text-xs text-slate-400">
+                      启用后登录将需要「密码 + 通行密钥」双重认证，更安全
+                    </span>
+                  </span>
+                </label>
+                <Button
+                  onClick={submitRegister}
+                  loading={loading}
+                  className="w-full py-2.5 text-base"
+                >
+                  <ShieldCheck className="h-5 w-5" />
+                  注册
+                </Button>
+                <p className="flex items-start gap-2 text-xs leading-relaxed text-slate-500 dark:text-slate-400">
+                  <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-indigo-400" />
+                  密码将使用 PBKDF2 加盐哈希后存储，服务器不保存明文。可仅用密码登录，
+                  也可在注册或账户设置中绑定通行密钥实现双重认证。
+                </p>
+              </>
+            )}
+
+            {/* ===== 忘记密码 ===== */}
+            {view === 'forgot' && (
+              <>
+                <Input
+                  placeholder="用户名"
+                  value={forgotUser}
+                  onChange={(e) => setForgotUser(e.target.value)}
+                  autoFocus
+                />
+                <Button
+                  onClick={submitForgot}
+                  loading={loading}
+                  className="w-full py-2.5 text-base"
+                >
+                  <Mail className="h-5 w-5" />
+                  发送重置链接
+                </Button>
+                <button
+                  onClick={() => reset('login')}
+                  className="inline-flex items-center gap-1 text-sm text-slate-500 hover:text-indigo-500 dark:text-slate-400 dark:hover:text-indigo-400"
+                >
+                  <ArrowLeft className="h-4 w-4" /> 返回登录
+                </button>
+              </>
+            )}
+
+            {/* ===== 重置密码 ===== */}
+            {view === 'reset' && (
+              <>
+                <Input
+                  type="password"
+                  placeholder="新密码（至少 8 位）"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  autoComplete="new-password"
+                  autoFocus
+                />
+                <Input
+                  type="password"
+                  placeholder="确认新密码"
+                  value={password2}
+                  onChange={(e) => setPassword2(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && submitReset()}
+                  autoComplete="new-password"
+                />
+                <Button
+                  onClick={submitReset}
+                  loading={loading}
+                  className="w-full py-2.5 text-base"
+                >
+                  <KeyRound className="h-5 w-5" />
+                  重置密码
+                </Button>
+                <button
+                  onClick={() => reset('login')}
+                  className="inline-flex items-center gap-1 text-sm text-slate-500 hover:text-indigo-500 dark:text-slate-400 dark:hover:text-indigo-400"
+                >
+                  <ArrowLeft className="h-4 w-4" /> 返回登录
+                </button>
+              </>
+            )}
           </div>
         </div>
       </div>

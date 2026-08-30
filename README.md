@@ -10,7 +10,8 @@
 - 📁 **文件夹层级**：树形侧栏 + 面包屑导航，轻松整理收藏
 - 🔍 **全局搜索**：按标题、链接、简介快速搜索
 - 👥 **多用户**：每位用户拥有完全独立的数据空间
-- 🔐 **Passkey 免密登录**：基于 WebAuthn，支持指纹 / 面容 / 安全密钥 / 系统密码，服务器不存储任何密码
+- 🔐 **多种登录方式**：支持 仅密码 / 仅通行密钥 / 密码 + 通行密钥双重认证，可自由选择或组合
+- 🔑 **密码找回**：绑定邮箱后可一键发送重置链接，重设密码
 - 📥 **导入收藏夹**：直接导入 Chrome / Edge 导出的书签 HTML 文件，自动保留原有文件夹层级
 - 🌓 **精美界面**：响应式设计，适配移动端与桌面端，支持明暗主题
 
@@ -22,7 +23,8 @@
 | 后端 | Cloudflare Pages Functions（serverless 函数） |
 | 数据库 | Cloudflare D1（SQLite） |
 | AI | Cloudflare Workers AI（默认 `@cf/meta/llama-3.1-8b-instruct`） |
-| 认证 | WebAuthn / Passkey（`@simplewebauthn`） |
+| 认证 | 密码（PBKDF2-SHA256）+ WebAuthn / Passkey（`@simplewebauthn`）+ 双重认证 |
+| 邮件 | Resend API / MailChannels（用于密码找回，可选） |
 
 ## 📁 项目结构
 
@@ -135,12 +137,20 @@ cloud-fav/
 | 变量 | 说明 | 默认值 |
 | --- | --- | --- |
 | `AI_MODEL` | Workers AI 文本模型名称 | `@cf/meta/llama-3.1-8b-instruct` |
+| `MAIL_FROM` | 找回密码邮件的发件地址（可选） | `CloudFav <onboarding@resend.dev>` |
+| `RESEND_API_KEY` | Resend 邮件服务 API Key（可选） | 无 |
+
+> 💡 密码找回邮件：配置 `RESEND_API_KEY`（或 MailChannels 环境）后，重置链接会发送到用户绑定的邮箱；
+> 未配置时，重置链接会直接显示在页面上（仅限本地 / 演示环境）。
 
 ## 🔒 安全说明
 
 - 所有 API 均需登录会话（HttpOnly Cookie + 30 天有效期）
 - 用户数据通过 `user_id` 严格隔离，无法跨用户访问
 - 网页标题抓取已屏蔽内网 / 本地地址，防止 SSRF
+- 密码使用 **PBKDF2-SHA256 加盐哈希**存储，服务器不保存明文，也无法逆向还原
+- 密码重置采用**一次性、30 分钟有效期**的随机令牌，令牌仅以哈希形式入库，用后即焚
+- 至少保留一种登录方式：无法删除最后一个通行密钥（无密码用户）或无法仅凭通行密钥绕过已设置的密码
 - Passkey 私钥保存在用户设备本地，服务器仅存公钥
 
 ## 📄 许可证

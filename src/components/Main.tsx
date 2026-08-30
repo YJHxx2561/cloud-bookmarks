@@ -8,6 +8,7 @@ import {
   Moon,
   Plus,
   Search,
+  Settings as SettingsIcon,
   Sun,
   Upload,
   X,
@@ -23,6 +24,7 @@ import {
 } from '../utils'
 import { Button } from './ui'
 import { BookmarkModal, ConfirmDialog, FolderModal } from './modals'
+import SettingsModal from './SettingsModal'
 import Sidebar from './Sidebar'
 import BookmarkList from './BookmarkList'
 import { toast, toastError } from './Toasts'
@@ -49,6 +51,7 @@ export default function Main({ user, onLogout }: { user: User; onLogout: () => v
   const [dark, setDark] = useState(() => localStorage.getItem('cf-theme') === 'dark')
   const [modal, setModal] = useState<ModalState>(null)
   const [confirm, setConfirm] = useState<ConfirmState | null>(null)
+  const [settingsOpen, setSettingsOpen] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
   const [importing, setImporting] = useState(false)
 
@@ -250,6 +253,13 @@ export default function Main({ user, onLogout }: { user: User; onLogout: () => v
           >
             {dark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
           </button>
+          <button
+            onClick={() => setSettingsOpen(true)}
+            className="rounded-lg p-2 text-slate-500 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"
+            title="账户设置"
+          >
+            <SettingsIcon className="h-4 w-4" />
+          </button>
           <div className="ml-1 hidden items-center gap-2 rounded-full bg-slate-100 py-1 pl-1 pr-3 dark:bg-slate-800 sm:flex">
             <span className="flex h-6 w-6 items-center justify-center rounded-full bg-indigo-600 text-xs font-bold text-white">
               {user.username.slice(0, 1).toUpperCase()}
@@ -402,6 +412,7 @@ export default function Main({ user, onLogout }: { user: User; onLogout: () => v
         onConfirm={confirm?.onConfirm ?? (() => {})}
         onClose={() => setConfirm(null)}
       />
+      <SettingsModal open={settingsOpen} user={user} onClose={() => setSettingsOpen(false)} />
     </div>
   )
 }

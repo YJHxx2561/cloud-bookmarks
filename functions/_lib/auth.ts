@@ -35,6 +35,17 @@ export async function createSession(env: Env, userId: string): Promise<string> {
   return token
 }
 
+// 创建会话并以 JSON + Set-Cookie 返回响应（登录/注册成功后使用）
+export async function createSessionResponse(
+  env: Env,
+  request: Request,
+  userId: string,
+  body: unknown
+): Promise<Response> {
+  const token = await createSession(env, userId)
+  return withSession(json(body), sessionCookieHeaders(token, request))
+}
+
 export async function destroySession(request: Request, env: Env): Promise<void> {
   const cookies = parseCookies(request.headers.get('Cookie'))
   const token = cookies[SESSION_COOKIE]

@@ -1,5 +1,6 @@
 export { default as AuthPage } from './AuthPage'
 export { default as Main } from './Main'
+export { default as SettingsModal } from './SettingsModal'
 export { default as Sidebar } from './Sidebar'
 export { default as BookmarkList } from './BookmarkList'
 export { default as BookmarkCard } from './BookmarkCard'

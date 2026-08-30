@@ -1,4 +1,4 @@
-// 注册第二步：校验客户端凭证并创建用户与 Passkey
+// 注册第二步：校验客户端凭证并创建用户 / 为用户补挂通行密钥，随后建立会话
 import { verifyRegistrationResponse } from '@simplewebauthn/server'
 import {
   json,
@@ -8,7 +8,7 @@ import {
   bytesToB64url,
 } from '../../_lib/helpers'
 import { getChallenge, deleteChallenge } from '../../_lib/webauthn'
-import { createSession, sessionCookieHeaders, withSession } from '../../_lib/auth'
+import { createSessionResponse } from '../../_lib/auth'
 
 export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
   const { challengeId, username, credential } = await readJson(request)
@@ -17,11 +17,6 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
   const stored = await getChallenge(env, challengeId)
   if (!stored || stored.username !== username) return error('验证已失效，请重试')
   const payload = JSON.parse(stored.payload)
-
-  const existing = await env.DB.prepare('SELECT id FROM users WHERE username = ?')
-    .bind(username)
-    .first()
-  if (existing) return error('该用户名已被注册', 409)
 
   let verification
   try {
@@ -39,31 +34,46 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
   }
 
   const { credentialPublicKey, credentialID, counter } = verification.registrationInfo
-  const userId = stored.userId || generateId()
+  const credentialB64 = bytesToB64url(credentialID)
 
-  await env.DB.batch([
-    env.DB.prepare('INSERT INTO users (id, username, created_at) VALUES (?,?,?)').bind(
-      userId,
-      username,
-      Date.now()
-    ),
+  const dup = await env.DB.prepare('SELECT id FROM passkeys WHERE credential_id = ?')
+    .bind(credentialB64)
+    .first()
+  if (dup) return error('该通行密钥已被使用', 409)
+
+  // 用户可能已在第一步（密码注册）创建，此时只补挂凭据；否则创建用户
+  const existing = await env.DB.prepare('SELECT id FROM users WHERE username = ?')
+    .bind(username)
+    .first()
+  const userId = existing ? (existing.id as string) : stored.userId || generateId()
+
+  const batch = [
+    ...(!existing
+      ? [
+          env.DB.prepare('INSERT INTO users (id, username, created_at) VALUES (?,?,?)').bind(
+            userId,
+            username,
+            Date.now()
+          ),
+        ]
+      : []),
     env.DB.prepare(
       'INSERT INTO passkeys (id, user_id, credential_id, public_key, counter, transports, created_at) VALUES (?,?,?,?,?,?,?)'
     ).bind(
       generateId(),
       userId,
-      bytesToB64url(credentialID),
+      credentialB64,
       bytesToB64url(credentialPublicKey),
       counter,
       JSON.stringify(credential.response?.transports ?? []),
       Date.now()
     ),
-  ])
+  ]
+  await env.DB.batch(batch)
   await deleteChallenge(env, challengeId)
 
-  const token = await createSession(env, userId)
-  return withSession(
-    json({ ok: true, data: { user: { id: userId, username } } }),
-    sessionCookieHeaders(token, request)
-  )
+  return createSessionResponse(env, request, userId, {
+    ok: true,
+    data: { user: { id: userId, username } },
+  })
 }
