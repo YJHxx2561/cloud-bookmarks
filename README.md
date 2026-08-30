@@ -137,11 +137,37 @@ cloud-fav/
 | 变量 | 说明 | 默认值 |
 | --- | --- | --- |
 | `AI_MODEL` | Workers AI 文本模型名称 | `@cf/meta/llama-3.1-8b-instruct` |
+| `RESEND_API_KEY` | Resend 邮件服务 API Key（可选，用于发送找回密码邮件） | 无 |
 | `MAIL_FROM` | 找回密码邮件的发件地址（可选） | `CloudFav <onboarding@resend.dev>` |
-| `RESEND_API_KEY` | Resend 邮件服务 API Key（可选） | 无 |
 
-> 💡 密码找回邮件：配置 `RESEND_API_KEY`（或 MailChannels 环境）后，重置链接会发送到用户绑定的邮箱；
-> 未配置时，重置链接会直接显示在页面上（仅限本地 / 演示环境）。
+> 💡 密码找回邮件：配置 `RESEND_API_KEY` 后，重置链接会发送到用户绑定的邮箱；未配置时，重置链接会直接显示在页面上（仅适合本地 / 演示环境）。
+> 配置方法见下文「[📧 找回密码邮件（Resend / MailChannels）](#📧-找回密码邮件resend--mailchannels)」。
+
+## 📧 找回密码邮件（Resend / MailChannels）
+
+忘记密码时需要向用户绑定邮箱发送重置链接，支持两种邮件服务（**二选一**，Resend 优先）。邮件变量与 D1 / AI 一样，配置在 **Pages 项目设置**中（两种部署方式最终都是同一个 Pages 项目），配置后需重新部署生效：
+
+- **GitHub Actions 部署**：Cloudflare 控制台 → **Workers & Pages** → 选择项目 `cloud-fav` → **Settings → Environment variables** 添加（选择 **Production** 环境）
+- **Dashboard 面板部署**：同上，项目 → Settings → Environment variables 添加
+
+### 方式一：Resend（推荐）
+
+1. 注册 [Resend](https://resend.com)，进入 **API Keys** 页面创建一个 API Key（形如 `re_xxxxxxxx`）。
+2. （可选，推荐）在 **Domains** 添加并验证你的发件域名，然后在项目环境变量中设置：
+   - `RESEND_API_KEY`：上一步的 API Key
+   - `MAIL_FROM`：你的发件地址，如 `CloudFav <noreply@你的域名>`
+   - 若跳过域名验证，可用默认发件人 `CloudFav <onboarding@resend.dev>`（**只能**发送给你 Resend 账号已验证的邮箱，适合测试，正式使用建议绑定域名）
+3. 重新部署后即可发送找回密码邮件。
+
+### 方式二：MailChannels（免费）
+
+不依赖 Resend 账号，但需要一个自有域名并配置 DNS：
+
+1. 将 `MAIL_FROM` 设为你的发件邮箱（如 `noreply@你的域名`），并在 Cloudflare DNS 中按 [MailChannels 官方文档](https://support.mailchannels.com/hc/en-us/articles/200262650-Send-email-from-Cloudflare-Workers) 配置发件域名的 **SPF / DKIM** 记录。
+2. 在 Pages 项目环境变量中添加 `MAIL_FROM`。
+3. 重新部署后生效。
+
+> 📌 注意：`MAIL_FROM` 在 Resend 下可为 `姓名 <邮箱>` 格式；MailChannels 仅支持纯邮箱地址。
 
 ## 🔒 安全说明
 
