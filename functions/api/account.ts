@@ -5,7 +5,9 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
 export const onRequestGet: PagesFunction<Env> = async ({ env, data }) => {
   const userId = (data as { userId: string }).userId
-  const user = await env.DB.prepare('SELECT id, username, email, password_hash FROM users WHERE id = ?')
+  const user = await env.DB.prepare(
+    'SELECT id, username, email, password_hash, two_factor_enabled FROM users WHERE id = ?'
+  )
     .bind(userId)
     .first()
   if (!user) return error('用户不存在', 404)
@@ -22,6 +24,7 @@ export const onRequestGet: PagesFunction<Env> = async ({ env, data }) => {
       username: user.username,
       email: (user.email as string) || null,
       hasPassword: Boolean(user.password_hash),
+      twoFactorEnabled: Boolean(user.two_factor_enabled),
       passkeys: passkeys.results.map((p) => ({ id: p.id, createdAt: p.created_at })),
     },
   })

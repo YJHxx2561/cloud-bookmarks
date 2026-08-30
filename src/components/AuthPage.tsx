@@ -26,6 +26,7 @@ export default function AuthPage({ onAuth }: { onAuth: (u: User) => void }) {
   const [password, setPassword] = useState('')
   const [email, setEmail] = useState('')
   const [setupPasskey, setSetupPasskey] = useState(false)
+  const [enable2fa, setEnable2fa] = useState(false)
   const [password2, setPassword2] = useState('')
   const [forgotUser, setForgotUser] = useState('')
 
@@ -85,6 +86,7 @@ export default function AuthPage({ onAuth }: { onAuth: (u: User) => void }) {
     if (!password && !setupPasskey) return setErr('请设置密码或勾选启用通行密钥')
     if (password && password.length < 8) return setErr('密码至少需要 8 位')
     if (password !== password2) return setErr('两次输入的密码不一致')
+    if (enable2fa && (!password || !setupPasskey)) return setErr('双重认证需要同时设置密码并启用通行密钥')
     setLoading(true)
     setErr('')
     try {
@@ -93,6 +95,7 @@ export default function AuthPage({ onAuth }: { onAuth: (u: User) => void }) {
         password: password || undefined,
         email: email.trim() || undefined,
         setupPasskey,
+        enable2fa,
       })
       if (d.data.next === 'passkey') {
         const user = await registerWithOptions(
@@ -294,16 +297,35 @@ export default function AuthPage({ onAuth }: { onAuth: (u: User) => void }) {
                   <input
                     type="checkbox"
                     checked={setupPasskey}
-                    onChange={(e) => setSetupPasskey(e.target.checked)}
+                    onChange={(e) => {
+                      setSetupPasskey(e.target.checked)
+                      if (!e.target.checked) setEnable2fa(false)
+                    }}
                     className="mt-0.5 h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
                   />
                   <span>
-                    同时启用通行密钥（可选）
+                    启用通行密钥（可选）
                     <span className="block text-xs text-slate-400">
-                      启用后登录将需要「密码 + 通行密钥」双重认证，更安全
+                      绑定后可用通行密钥免密登录（无需每次都输密码）
                     </span>
                   </span>
                 </label>
+                {setupPasskey && password && (
+                  <label className="flex cursor-pointer items-start gap-2 text-sm text-slate-600 dark:text-slate-300">
+                    <input
+                      type="checkbox"
+                      checked={enable2fa}
+                      onChange={(e) => setEnable2fa(e.target.checked)}
+                      className="mt-0.5 h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                    />
+                    <span>
+                      启用双重认证（2FA，可选）
+                      <span className="block text-xs text-slate-400">
+                        开启后登录需「密码 + 通行密钥」两步共同验证；不开启时两者可各自单独登录
+                      </span>
+                    </span>
+                  </label>
+                )}
                 <Button
                   onClick={submitRegister}
                   loading={loading}
@@ -314,8 +336,8 @@ export default function AuthPage({ onAuth }: { onAuth: (u: User) => void }) {
                 </Button>
                 <p className="flex items-start gap-2 text-xs leading-relaxed text-slate-500 dark:text-slate-400">
                   <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-indigo-400" />
-                  密码将使用 PBKDF2 加盐哈希后存储，服务器不保存明文。可仅用密码登录，
-                  也可在注册或账户设置中绑定通行密钥实现双重认证。
+                  密码将使用 PBKDF2 加盐哈希后存储，服务器不保存明文。可仅用密码登录，也可绑定
+                  通行密钥后用任一种方式登录；双重认证为可选增强，需密码与通行密钥共同验证。
                 </p>
               </>
             )}

@@ -11,11 +11,12 @@ import { createSessionResponse } from '../../_lib/auth'
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
 export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
-  const { username, password, email, setupPasskey } = await readJson(request)
+  const { username, password, email, setupPasskey, enable2fa } = await readJson(request)
   const name = String(username ?? '').trim()
   const pw = typeof password === 'string' ? password : ''
   const em = typeof email === 'string' ? email.trim() : ''
   const hasPasskey = Boolean(setupPasskey)
+  const wants2fa = Boolean(enable2fa)
 
   if (!name || name.length < 2 || name.length > 32 || !/^[\w.\-\u4e00-\u9fa5]+$/.test(name)) {
     return error('用户名需为 2-32 位的字母、数字、下划线、点、中划线或中文')
@@ -29,15 +30,17 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
   if (!pw && !hasPasskey) return error('请设置密码或启用通行密钥')
   if (pw && pw.length < 8) return error('密码至少需要 8 位')
   if (em && !EMAIL_RE.test(em)) return error('邮箱格式不正确')
+  // 双重认证需要密码 + 通行密钥两者都具备
+  if (wants2fa && (!pw || !hasPasskey)) return error('双重认证需要同时设置密码并启用通行密钥')
 
   let userId: string | null = null
   if (pw) {
     userId = generateId()
     const hash = await hashPassword(pw)
     await env.DB.prepare(
-      'INSERT INTO users (id, username, password_hash, email, created_at) VALUES (?, ?, ?, ?, ?)'
+      'INSERT INTO users (id, username, password_hash, email, two_factor_enabled, created_at) VALUES (?, ?, ?, ?, ?, ?)'
     )
-      .bind(userId, name, hash, em || null, Date.now())
+      .bind(userId, name, hash, em || null, wants2fa ? 1 : 0, Date.now())
       .run()
   }
 

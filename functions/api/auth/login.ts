@@ -14,7 +14,9 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
   const pw = typeof password === 'string' ? password : ''
   if (!name || !pw) return error('请输入用户名和密码')
 
-  const user = await env.DB.prepare('SELECT id, username, password_hash FROM users WHERE username = ?')
+  const user = await env.DB.prepare(
+    'SELECT id, username, password_hash, two_factor_enabled FROM users WHERE username = ?'
+  )
     .bind(name)
     .first()
   if (!user) return error('用户名或密码错误', 401)
@@ -22,29 +24,31 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
   const ok = await verifyPassword(pw, user.password_hash as string)
   if (!ok) return error('用户名或密码错误', 401)
 
-  // 绑定过通行密钥 → 双重认证：第二步仍需通行密钥
-  const passkeys = await env.DB.prepare('SELECT credential_id, transports FROM passkeys WHERE user_id = ?')
-    .bind(user.id)
-    .all()
-  if (passkeys.results.length) {
-    const { origin, rpID } = getRpInfo(request)
-    const options = await generateAuthenticationOptions({
-      rpID,
-      userVerification: 'preferred',
-      allowCredentials: passkeys.results.map((p) => ({
-        id: b64urlToBytes(p.credential_id as string),
-        type: 'public-key' as const,
-        transports: JSON.parse((p.transports as string) || '[]'),
-      })),
-    })
-    const challengeId = await storeChallenge(env, {
-      userId: user.id as string,
-      username: user.username as string,
-      challenge: options.challenge,
-      rpID,
-      origin,
-    })
-    return json({ ok: true, data: { next: '2fa', challengeId, options } })
+  // 仅当用户主动开启双重认证时，密码正确后还需完成通行密钥第二步
+  if (user.two_factor_enabled) {
+    const passkeys = await env.DB.prepare('SELECT credential_id, transports FROM passkeys WHERE user_id = ?')
+      .bind(user.id)
+      .all()
+    if (passkeys.results.length) {
+      const { origin, rpID } = getRpInfo(request)
+      const options = await generateAuthenticationOptions({
+        rpID,
+        userVerification: 'preferred',
+        allowCredentials: passkeys.results.map((p) => ({
+          id: b64urlToBytes(p.credential_id as string),
+          type: 'public-key' as const,
+          transports: JSON.parse((p.transports as string) || '[]'),
+        })),
+      })
+      const challengeId = await storeChallenge(env, {
+        userId: user.id as string,
+        username: user.username as string,
+        challenge: options.challenge,
+        rpID,
+        origin,
+      })
+      return json({ ok: true, data: { next: '2fa', challengeId, options } })
+    }
   }
 
   return createSessionResponse(env, request, user.id as string, {

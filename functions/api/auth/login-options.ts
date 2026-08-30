@@ -8,12 +8,16 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
   const name = String(username ?? '').trim()
   if (!name) return error('请输入用户名')
 
-  const user = await env.DB.prepare('SELECT id, username, password_hash FROM users WHERE username = ?')
+  const user = await env.DB.prepare(
+    'SELECT id, username, password_hash, two_factor_enabled FROM users WHERE username = ?'
+  )
     .bind(name)
     .first()
   if (!user) return error('用户不存在', 404)
-  // 设了密码的用户需走密码登录（含 2FA），不允许跳过密码直接通行密钥登录
-  if (user.password_hash) return error('该账号启用了密码登录（可能含双重认证），请使用密码登录', 400)
+  // 开启了双重认证的用户必须先用密码登录（密码 + 通行密钥两步），不允许仅凭通行密钥登录
+  if (user.password_hash && user.two_factor_enabled) {
+    return error('该账号启用了双重认证，请使用密码登录后完成通行密钥验证', 400)
+  }
 
   const passkeys = await env.DB.prepare(
     'SELECT credential_id, transports FROM passkeys WHERE user_id = ?'

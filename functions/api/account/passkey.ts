@@ -100,16 +100,22 @@ export const onRequestDelete: PagesFunction<Env> = async ({ request, env, data }
   if (!pk || pk.user_id !== userId) return error('通行密钥不存在', 404)
 
   // 至少保留一种登录方式：无密码且这是最后一个通行密钥时禁止删除
-  const user = await env.DB.prepare('SELECT password_hash FROM users WHERE id = ?')
+  const user = await env.DB.prepare('SELECT password_hash, two_factor_enabled FROM users WHERE id = ?')
     .bind(userId)
     .first()
   const count = await env.DB.prepare('SELECT COUNT(*) AS c FROM passkeys WHERE user_id = ?')
     .bind(userId)
     .first()
-  if (!user?.password_hash && Number((count?.c as number) ?? 0) <= 1) {
+  const total = Number((count?.c as number) ?? 0)
+  if (!user?.password_hash && total <= 1) {
     return error('这是你唯一的登录方式，请先设置密码后再删除', 400)
   }
 
-  await env.DB.prepare('DELETE FROM passkeys WHERE id = ?').bind(passkeyId).run()
+  // 删除最后一个通行密钥后无法完成双重认证，自动关闭 2FA
+  const batch = [env.DB.prepare('DELETE FROM passkeys WHERE id = ?').bind(passkeyId)]
+  if (user?.two_factor_enabled && total <= 1) {
+    batch.push(env.DB.prepare('UPDATE users SET two_factor_enabled = 0 WHERE id = ?').bind(userId))
+  }
+  await env.DB.batch(batch)
   return json({ ok: true, data: { done: true } })
 }

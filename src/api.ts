@@ -37,6 +37,7 @@ export const api = {
     password?: string
     email?: string
     setupPasskey?: boolean
+    enable2fa?: boolean
   }) =>
     request<{ ok: true; data: { next: string; challengeId?: string; options?: any; user?: User } }>(
       '/api/auth/register',
@@ -84,9 +85,15 @@ export const api = {
         username: string
         email: string | null
         hasPassword: boolean
+        twoFactorEnabled: boolean
         passkeys: { id: string; createdAt: number }[]
       }
     }>('/api/account'),
+  toggle2FA: (enabled: boolean) =>
+    request<{ ok: true; data: { enabled: boolean } }>('/api/account/2fa', {
+      method: 'POST',
+      body: JSON.stringify({ enabled }),
+    }),
   updateEmail: (email: string) =>
     request<{ ok: true; data: { email: string | null } }>('/api/account', {
       method: 'PATCH',
