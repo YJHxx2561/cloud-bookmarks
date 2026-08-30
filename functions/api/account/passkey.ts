@@ -73,15 +73,17 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env, data }) 
 
     await env.DB.prepare(
       'INSERT INTO passkeys (id, user_id, credential_id, public_key, counter, transports, created_at) VALUES (?,?,?,?,?,?,?)'
-    ).bind(
-      generateId(),
-      stored.userId,
-      bytesToB64url(credentialID),
-      bytesToB64url(credentialPublicKey),
-      counter,
-      JSON.stringify(credential.response?.transports ?? []),
-      Date.now()
     )
+      .bind(
+        generateId(),
+        stored.userId,
+        bytesToB64url(credentialID),
+        bytesToB64url(credentialPublicKey),
+        counter,
+        JSON.stringify(credential.response?.transports ?? []),
+        Date.now()
+      )
+      .run()
     await deleteChallenge(env, challengeId)
     return json({ ok: true, data: { done: true } })
   }
