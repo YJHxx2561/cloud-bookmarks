@@ -2,7 +2,9 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   Bookmark as BookmarkIcon,
   ChevronRight,
+  FolderInput,
   FolderPlus,
+  ListChecks,
   LogOut,
   Menu,
   Moon,
@@ -10,6 +12,7 @@ import {
   Search,
   Settings as SettingsIcon,
   Sun,
+  Trash2,
   Upload,
   X,
 } from 'lucide-react'
@@ -23,7 +26,7 @@ import {
   setDragItem,
 } from '../utils'
 import { Button } from './ui'
-import { BookmarkModal, ConfirmDialog, FolderModal } from './modals'
+import { BatchMoveModal, BookmarkModal, ConfirmDialog, FolderModal } from './modals'
 import SettingsModal from './SettingsModal'
 import Sidebar from './Sidebar'
 import BookmarkList from './BookmarkList'
@@ -54,6 +57,57 @@ export default function Main({ user, onLogout }: { user: User; onLogout: () => v
   const [settingsOpen, setSettingsOpen] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
   const [importing, setImporting] = useState(false)
+
+  // ---------- 批量管理 ----------
+  const [batchMode, setBatchMode] = useState(false)
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [moveOpen, setMoveOpen] = useState(false)
+
+  const enterBatchMode = () => {
+    setSelected(new Set())
+    setBatchMode(true)
+  }
+  const exitBatchMode = () => {
+    setSelected(new Set())
+    setBatchMode(false)
+  }
+
+  // 在批量模式下切换文件夹时清空选择，避免跨目录误操作
+  const prevFolderRef = useRef(currentFolderId)
+  useEffect(() => {
+    if (batchMode && prevFolderRef.current !== currentFolderId) setSelected(new Set())
+    prevFolderRef.current = currentFolderId
+  }, [currentFolderId, batchMode])
+
+  const toggleSelect = (id: string) =>
+    setSelected((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+
+  const askBatchDelete = () => {
+    const ids = [...selected]
+    setConfirm({
+      title: '批量删除书签',
+      message: `确定删除选中的 ${ids.length} 个书签吗？此操作无法恢复。`,
+      onConfirm: async () => {
+        await api.batchBookmarks('delete', ids, null)
+        setSelected(new Set())
+        await refresh()
+        toast(`已删除 ${ids.length} 个书签`, 'success')
+      },
+    })
+  }
+
+  const handleBatchMove = async (folderId: string | null) => {
+    const ids = [...selected]
+    await api.batchBookmarks('move', ids, folderId)
+    setSelected(new Set())
+    await refresh()
+    toast(`已移动 ${ids.length} 个书签`, 'success')
+  }
 
   const folders = data?.folders ?? []
   const bookmarks = data?.bookmarks ?? []
@@ -86,6 +140,10 @@ export default function Main({ user, onLogout }: { user: User; onLogout: () => v
   const currentBookmarks = isSearch ? [] : bookmarksByFolder(bookmarks, currentFolderId)
   const path = folderPath(folders, currentFolderId)
   const isEmpty = !isSearch && subfolders.length === 0 && currentBookmarks.length === 0
+  const allSelected =
+    currentBookmarks.length > 0 && currentBookmarks.every((b) => selected.has(b.id))
+  const toggleSelectAll = () =>
+    setSelected(allSelected ? new Set() : new Set(currentBookmarks.map((b) => b.id)))
 
   // ---------- 拖拽 ----------
   const handleDrop = async (folderId: string | null, index?: number) => {
@@ -352,6 +410,16 @@ export default function Main({ user, onLogout }: { user: User; onLogout: () => v
               </span>
             ))}
             <div className="ml-auto flex items-center gap-2">
+              {!isSearch && (
+                <Button
+                  variant="secondary"
+                  className="!px-2.5 !py-1.5 text-xs"
+                  onClick={batchMode ? exitBatchMode : enterBatchMode}
+                  title="批量管理"
+                >
+                  <ListChecks className="h-4 w-4" /> 批量管理
+                </Button>
+              )}
               <Button
                 variant="secondary"
                 className="!px-2.5 !py-1.5 text-xs"
@@ -383,8 +451,53 @@ export default function Main({ user, onLogout }: { user: User; onLogout: () => v
               onEditBookmark={(b) => setModal({ kind: 'bookmark', mode: 'edit', bookmark: b })}
               onDeleteBookmark={askDeleteBookmark}
               onDrop={handleDrop}
+              batchMode={batchMode}
+              selectedIds={selected}
+              onToggleSelect={toggleSelect}
             />
           </div>
+
+          {/* 批量操作栏 */}
+          {batchMode && (
+            <div className="shrink-0 px-4 pb-4 sm:px-6">
+              <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-slate-200 bg-white/95 px-3 py-2.5 shadow-lg backdrop-blur dark:border-slate-700 dark:bg-slate-900/95">
+                <span className="px-1 text-sm font-medium text-slate-700 dark:text-slate-200">
+                  已选 <b className="text-indigo-600 dark:text-indigo-400">{selected.size}</b> 项
+                </span>
+                <Button
+                  variant="secondary"
+                  className="!px-2.5 !py-1.5 text-xs"
+                  onClick={toggleSelectAll}
+                  disabled={currentBookmarks.length === 0}
+                >
+                  {allSelected ? '取消全选' : '全选'}
+                </Button>
+                <Button
+                  variant="secondary"
+                  className="!px-2.5 !py-1.5 text-xs"
+                  onClick={() => setMoveOpen(true)}
+                  disabled={selected.size === 0}
+                >
+                  <FolderInput className="h-4 w-4" /> 移动到
+                </Button>
+                <Button
+                  variant="danger"
+                  className="!px-2.5 !py-1.5 text-xs"
+                  onClick={askBatchDelete}
+                  disabled={selected.size === 0}
+                >
+                  <Trash2 className="h-4 w-4" /> 删除
+                </Button>
+                <Button
+                  variant="ghost"
+                  className="!px-2.5 !py-1.5 text-xs"
+                  onClick={exitBatchMode}
+                >
+                  完成
+                </Button>
+              </div>
+            </div>
+          )}
         </main>
       </div>
 
@@ -411,6 +524,13 @@ export default function Main({ user, onLogout }: { user: User; onLogout: () => v
         message={confirm?.message ?? ''}
         onConfirm={confirm?.onConfirm ?? (() => {})}
         onClose={() => setConfirm(null)}
+      />
+      <BatchMoveModal
+        open={moveOpen}
+        count={selected.size}
+        folders={folders}
+        onClose={() => setMoveOpen(false)}
+        onConfirm={handleBatchMove}
       />
       <SettingsModal open={settingsOpen} user={user} onClose={() => setSettingsOpen(false)} />
     </div>

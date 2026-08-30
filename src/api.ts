@@ -190,6 +190,11 @@ export const api = {
     }),
   deleteBookmark: (id: string) =>
     request<{ ok: true }>(`/api/bookmarks/${id}`, { method: 'DELETE' }),
+  batchBookmarks: (action: 'delete' | 'move', ids: string[], folderId: string | null) =>
+    request<{ ok: true; data: { deleted?: number; moved?: number } }>('/api/bookmarks/batch', {
+      method: 'POST',
+      body: JSON.stringify({ action, ids, folderId }),
+    }),
 
   reorder: (type: 'bookmark' | 'folder', ids: string[]) =>
     request<{ ok: true }>('/api/reorder', { method: 'POST', body: JSON.stringify({ type, ids }) }),

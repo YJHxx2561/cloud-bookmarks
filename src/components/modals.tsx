@@ -360,6 +360,65 @@ export function FolderModal({
   )
 }
 
+// ---------- 批量移动到文件夹 ----------
+
+export function BatchMoveModal({
+  open,
+  count,
+  folders,
+  onClose,
+  onConfirm,
+}: {
+  open: boolean
+  count: number
+  folders: Folder[]
+  onClose: () => void
+  onConfirm: (folderId: string | null) => void
+}) {
+  const [folderId, setFolderId] = useState('')
+  const [busy, setBusy] = useState(false)
+  const flatFolders = useMemo(() => flattenFolders(folders), [folders])
+
+  const run = async () => {
+    setBusy(true)
+    try {
+      await onConfirm(folderId === '' ? null : folderId)
+      onClose()
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Modal open={open} onClose={onClose} title="批量移动书签" width="max-w-md">
+      <div className="space-y-4">
+        <p className="text-sm text-slate-600 dark:text-slate-300">
+          将选中的 <b className="text-indigo-600 dark:text-indigo-400">{count}</b> 个书签移动到：
+        </p>
+        <Field label="目标文件夹">
+          <Select value={folderId} onChange={(e) => setFolderId(e.target.value)}>
+            <option value="">根目录（不在文件夹中）</option>
+            {flatFolders.map(({ folder, depth }) => (
+              <option key={folder.id} value={folder.id}>
+                {'　'.repeat(depth)}
+                {folder.name}
+              </option>
+            ))}
+          </Select>
+        </Field>
+        <div className="flex justify-end gap-2 pt-1">
+          <Button variant="secondary" onClick={onClose}>
+            取消
+          </Button>
+          <Button onClick={run} loading={busy}>
+            移动
+          </Button>
+        </div>
+      </div>
+    </Modal>
+  )
+}
+
 // ---------- 确认对话框 ----------
 
 export function ConfirmDialog({

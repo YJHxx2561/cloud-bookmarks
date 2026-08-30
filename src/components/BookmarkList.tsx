@@ -79,6 +79,9 @@ export default function BookmarkList({
   onEditBookmark,
   onDeleteBookmark,
   onDrop,
+  batchMode,
+  selectedIds,
+  onToggleSelect,
 }: {
   folders: Folder[]
   bookmarks: Bookmark[]
@@ -93,6 +96,9 @@ export default function BookmarkList({
   onEditBookmark: (b: Bookmark) => void
   onDeleteBookmark: (b: Bookmark) => void
   onDrop: (folderId: string | null, index?: number) => void
+  batchMode?: boolean
+  selectedIds?: Set<string>
+  onToggleSelect?: (id: string) => void
 }) {
   return (
     <div
@@ -139,6 +145,9 @@ export default function BookmarkList({
                 onEdit={() => onEditBookmark(b)}
                 onDelete={() => onDeleteBookmark(b)}
                 onDrop={(folderId, index) => onDrop(folderId, index)}
+                batchMode={batchMode}
+                selected={batchMode ? (selectedIds?.has(b.id) ?? false) : false}
+                onToggleSelect={batchMode ? () => onToggleSelect?.(b.id) : undefined}
               />
             ))}
           </div>
