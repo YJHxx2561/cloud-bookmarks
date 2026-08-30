@@ -111,10 +111,15 @@ export const onRequestDelete: PagesFunction<Env> = async ({ request, env, data }
     return error('这是你唯一的登录方式，请先设置密码后再删除', 400)
   }
 
-  // 删除最后一个通行密钥后无法完成双重认证，自动关闭 2FA
+  // 删除最后一个通行密钥后若再无其他第二因素（如验证器），自动关闭 2FA
   const batch = [env.DB.prepare('DELETE FROM passkeys WHERE id = ?').bind(passkeyId)]
   if (user?.two_factor_enabled && total <= 1) {
-    batch.push(env.DB.prepare('UPDATE users SET two_factor_enabled = 0 WHERE id = ?').bind(userId))
+    const totpRow = await env.DB.prepare('SELECT totp_enabled FROM users WHERE id = ?')
+      .bind(userId)
+      .first()
+    if (!totpRow?.totp_enabled) {
+      batch.push(env.DB.prepare('UPDATE users SET two_factor_enabled = 0 WHERE id = ?').bind(userId))
+    }
   }
   await env.DB.batch(batch)
   return json({ ok: true, data: { done: true } })

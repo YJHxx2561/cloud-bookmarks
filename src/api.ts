@@ -48,12 +48,25 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(payload),
     }),
-  // 密码登录：返回 next: '2fa'（需通行密钥第二步） | 'done'
+  // 密码登录：返回 next: '2fa'（需第二因素：通行密钥或验证器） | 'done'
   login: (payload: { username: string; password: string }) =>
-    request<{ ok: true; data: { next: string; challengeId?: string; options?: any; user?: User } }>(
-      '/api/auth/login',
-      { method: 'POST', body: JSON.stringify(payload) }
-    ),
+    request<{
+      ok: true
+      data: {
+        next: string
+        methods?: { passkey: boolean; totp: boolean }
+        challengeId?: string
+        options?: any
+        totpChallengeId?: string
+        user?: User
+      }
+    }>('/api/auth/login', { method: 'POST', body: JSON.stringify(payload) }),
+  // 2FA 第二步：验证器验证码
+  loginTotp: (challengeId: string, code: string) =>
+    request<{ ok: true; data: { user: User } }>('/api/auth/totp-verify', {
+      method: 'POST',
+      body: JSON.stringify({ challengeId, code }),
+    }),
   loginOptions: (username: string) =>
     request<{ ok: true; data: { challengeId: string; options: any } }>('/api/auth/login-options', {
       method: 'POST',
@@ -86,6 +99,7 @@ export const api = {
         email: string | null
         hasPassword: boolean
         twoFactorEnabled: boolean
+        totpEnabled: boolean
         passkeys: { id: string; createdAt: number }[]
       }
     }>('/api/account'),
@@ -93,6 +107,21 @@ export const api = {
     request<{ ok: true; data: { enabled: boolean } }>('/api/account/2fa', {
       method: 'POST',
       body: JSON.stringify({ enabled }),
+    }),
+  // TOTP 验证器绑定
+  totpSetup: () =>
+    request<{ ok: true; data: { secret: string; uri: string } }>('/api/account/totp', {
+      method: 'POST',
+      body: JSON.stringify({ step: 'setup' }),
+    }),
+  totpVerify: (code: string) =>
+    request<{ ok: true; data: { done: boolean } }>('/api/account/totp', {
+      method: 'POST',
+      body: JSON.stringify({ step: 'verify', code }),
+    }),
+  totpDelete: () =>
+    request<{ ok: true; data: { done: boolean } }>('/api/account/totp', {
+      method: 'DELETE',
     }),
   updateEmail: (email: string) =>
     request<{ ok: true; data: { email: string | null } }>('/api/account', {

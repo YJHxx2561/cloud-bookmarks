@@ -1,5 +1,15 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Fingerprint, KeyRound, Loader2, Mail, Plus, ShieldCheck, Trash2 } from 'lucide-react'
+import {
+  Fingerprint,
+  KeyRound,
+  Loader2,
+  Mail,
+  Plus,
+  ShieldCheck,
+  Smartphone,
+  Trash2,
+} from 'lucide-react'
+import { QRCodeSVG } from 'qrcode.react'
 import { api } from '../api'
 import { addAccountPasskey } from '../webauthn'
 import { Button, Field, Input, Modal } from './ui'
@@ -11,6 +21,7 @@ type AccountInfo = {
   email: string | null
   hasPassword: boolean
   twoFactorEnabled: boolean
+  totpEnabled: boolean
   passkeys: { id: string; createdAt: number }[]
 }
 
@@ -36,12 +47,18 @@ export default function SettingsModal({
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [faBusy, setFaBusy] = useState(false)
 
+  const [totpSetup, setTotpSetup] = useState<{ secret: string; uri: string } | null>(null)
+  const [totpCode, setTotpCode] = useState('')
+  const [totpBusy, setTotpBusy] = useState(false)
+
   const refresh = useCallback(async () => {
     const d = await api.account()
     setInfo(d.data)
     setEmail(d.data.email ?? '')
     setCurrentPassword('')
     setNewPassword('')
+    setTotpSetup(null)
+    setTotpCode('')
   }, [])
 
   useEffect(() => {
@@ -113,8 +130,8 @@ export default function SettingsModal({
   const handleToggle2FA = async () => {
     if (!info) return
     const want = !info.twoFactorEnabled
-    if (want && (!info.hasPassword || info.passkeys.length === 0)) {
-      toastError('双重认证需要同时设置密码并绑定通行密钥')
+    if (want && (!info.hasPassword || (info.passkeys.length === 0 && !info.totpEnabled))) {
+      toastError('双重认证需要先设置密码，并绑定通行密钥或验证器应用')
       return
     }
     setFaBusy(true)
@@ -126,6 +143,48 @@ export default function SettingsModal({
       toastError(e)
     } finally {
       setFaBusy(false)
+    }
+  }
+
+  // ---------- 验证器应用（TOTP） ----------
+  const handleTotpSetup = async () => {
+    setTotpBusy(true)
+    try {
+      const d = await api.totpSetup()
+      setTotpSetup(d.data)
+      setTotpCode('')
+      toast('请在验证器应用中添加账户', 'info')
+    } catch (e) {
+      toastError(e)
+    } finally {
+      setTotpBusy(false)
+    }
+  }
+
+  const handleTotpVerify = async () => {
+    if (!/^\d{6}$/.test(totpCode.trim())) return toastError('请输入 6 位验证码')
+    setTotpBusy(true)
+    try {
+      await api.totpVerify(totpCode.trim())
+      await refresh()
+      toast('验证器已绑定', 'success')
+    } catch (e) {
+      toastError(e)
+    } finally {
+      setTotpBusy(false)
+    }
+  }
+
+  const handleTotpDelete = async () => {
+    setTotpBusy(true)
+    try {
+      await api.totpDelete()
+      await refresh()
+      toast('验证器已解绑', 'success')
+    } catch (e) {
+      toastError(e)
+    } finally {
+      setTotpBusy(false)
     }
   }
 
@@ -225,9 +284,9 @@ export default function SettingsModal({
             </div>
             <p className="mt-2 text-xs leading-relaxed text-slate-500 dark:text-slate-400">
               {info.twoFactorEnabled
-                ? '已开启：登录需「密码 + 通行密钥」两步共同验证，更安全。'
-                : '未开启：密码与通行密钥可各自单独登录。'}
-              开启双重认证需已设置密码并绑定至少一个通行密钥。
+                ? '已开启：登录需「密码 + 通行密钥 / 验证码」两步共同验证，更安全。'
+                : '未开启：密码、通行密钥、验证器可各自独立使用。'}
+              开启双重认证需已设置密码，并绑定至少一个第二因素（通行密钥或验证器应用）。
             </p>
           </section>
 
@@ -245,7 +304,7 @@ export default function SettingsModal({
               <p className="rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-500 dark:bg-slate-800 dark:text-slate-400">
                 尚未绑定任何通行密钥。
                 {info.hasPassword
-                  ? '添加后将要求「密码 + 通行密钥」双重认证登录。'
+                  ? '绑定后可作为独立的登录方式，也可用作双重认证的第二因素。'
                   : '绑定后可使用通行密钥免密登录。'}
               </p>
             ) : (
@@ -276,7 +335,73 @@ export default function SettingsModal({
             )}
             {info.passkeys.length > 0 && info.hasPassword && (
               <p className="mt-2 text-xs text-slate-400">
-                密码与通行密钥互为独立的登录方式；开启双重认证后登录才需要两者共同验证。
+                密码、通行密钥、验证器互为独立的第二因素；开启双重认证后登录才需要共同验证。
+              </p>
+            )}
+          </section>
+
+          {/* 验证器应用（TOTP） */}
+          <section>
+            <div className="mb-3 flex items-center justify-between">
+              <h4 className="flex items-center gap-1.5 text-sm font-semibold text-slate-700 dark:text-slate-200">
+                <Smartphone className="h-4 w-4 text-indigo-500" /> 验证器应用（TOTP）
+              </h4>
+              {info.totpEnabled ? (
+                <Button
+                  variant="danger"
+                  className="!px-2.5 !py-1.5 text-xs"
+                  onClick={handleTotpDelete}
+                  loading={totpBusy}
+                >
+                  <Trash2 className="h-3.5 w-3.5" /> 解绑
+                </Button>
+              ) : !totpSetup ? (
+                <Button
+                  variant="secondary"
+                  className="!px-2.5 !py-1.5 text-xs"
+                  onClick={handleTotpSetup}
+                  loading={totpBusy}
+                >
+                  <Plus className="h-3.5 w-3.5" /> 绑定
+                </Button>
+              ) : null}
+            </div>
+            {info.totpEnabled ? (
+              <p className="rounded-lg bg-emerald-50 px-3 py-2 text-xs text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300">
+                已绑定验证器应用，可生成动态验证码，作为双重认证的第二因素。
+              </p>
+            ) : totpSetup ? (
+              <div className="space-y-3">
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                  使用验证器应用（如 Google Authenticator、Authy、1Password）扫描下方二维码，或手动输入密钥，
+                  然后输入应用显示的 6 位验证码完成绑定。
+                </p>
+                <div className="flex justify-center rounded-xl bg-white p-3 dark:bg-slate-800">
+                  <QRCodeSVG value={totpSetup.uri} size={160} />
+                </div>
+                <div>
+                  <p className="mb-1 text-xs text-slate-400">手动输入密钥</p>
+                  <Input readOnly value={totpSetup.secret} className="text-center font-mono tracking-wider" />
+                </div>
+                <div className="flex gap-2">
+                  <Input
+                    placeholder="6 位验证码"
+                    value={totpCode}
+                    onChange={(e) => setTotpCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                    onKeyDown={(e) => e.key === 'Enter' && handleTotpVerify()}
+                    inputMode="numeric"
+                    maxLength={6}
+                    className="text-center tracking-widest"
+                    autoFocus
+                  />
+                  <Button onClick={handleTotpVerify} loading={totpBusy} className="shrink-0">
+                    完成绑定
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              <p className="rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+                可选。绑定后可在支持 TOTP 的验证器应用中生成动态验证码，作为双重认证的第二因素。
               </p>
             )}
           </section>

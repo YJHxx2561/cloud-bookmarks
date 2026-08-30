@@ -11,6 +11,13 @@ import type { User } from '../types'
 
 type View = 'login' | 'register' | 'forgot' | 'reset'
 
+type TwoFaContext = {
+  methods: { passkey: boolean; totp: boolean }
+  challengeId?: string
+  options?: any
+  totpChallengeId?: string
+}
+
 export default function AuthPage({ onAuth }: { onAuth: (u: User) => void }) {
   const [view, setView] = useState<View>('login')
   // 从 URL 读取重置 token：/?reset=xxx
@@ -29,6 +36,10 @@ export default function AuthPage({ onAuth }: { onAuth: (u: User) => void }) {
   const [enable2fa, setEnable2fa] = useState(false)
   const [password2, setPassword2] = useState('')
   const [forgotUser, setForgotUser] = useState('')
+  // 登录第二步（双重认证）
+  const [fa2, setFa2] = useState<TwoFaContext | null>(null)
+  const [totpCode, setTotpCode] = useState('')
+  const [fa2Busy, setFa2Busy] = useState(false)
 
   useEffect(() => {
     if (resetToken) setView('reset')
@@ -39,6 +50,8 @@ export default function AuthPage({ onAuth }: { onAuth: (u: User) => void }) {
     setView(v)
     setErr('')
     setInfo('')
+    setFa2(null)
+    setTotpCode('')
   }
 
   // ---------- 登录 ----------
@@ -51,9 +64,21 @@ export default function AuthPage({ onAuth }: { onAuth: (u: User) => void }) {
     try {
       const d = await api.login({ username: name, password })
       if (d.data.next === '2fa') {
-        // 双重认证：密码正确，还需通行密钥
-        const user = await authenticateWithOptions(d.data.options!, d.data.challengeId!)
-        onAuth(user)
+        const ctx: TwoFaContext = {
+          methods: d.data.methods ?? { passkey: false, totp: false },
+          challengeId: d.data.challengeId,
+          options: d.data.options,
+          totpChallengeId: d.data.totpChallengeId,
+        }
+        // 仅绑定通行密钥时，自动继续 WebAuthn 第二步
+        if (ctx.methods.passkey && !ctx.methods.totp) {
+          const user = await authenticateWithOptions(ctx.options!, ctx.challengeId!)
+          onAuth(user)
+          return
+        }
+        setPassword('')
+        setTotpCode('')
+        setFa2(ctx)
         return
       }
       onAuth(d.data.user!)
@@ -61,6 +86,37 @@ export default function AuthPage({ onAuth }: { onAuth: (u: User) => void }) {
       setErr(e instanceof Error ? e.message : '登录失败，请重试')
     } finally {
       setLoading(false)
+    }
+  }
+
+  // ---------- 2FA 第二步：验证器验证码 ----------
+  const submitTotp = async () => {
+    if (!fa2?.totpChallengeId) return setErr('验证已失效，请重新登录')
+    if (!/^\d{6}$/.test(totpCode.trim())) return setErr('请输入 6 位验证码')
+    setFa2Busy(true)
+    setErr('')
+    try {
+      const d = await api.loginTotp(fa2.totpChallengeId, totpCode.trim())
+      onAuth(d.data.user)
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : '验证失败，请重试')
+    } finally {
+      setFa2Busy(false)
+    }
+  }
+
+  // ---------- 2FA 第二步：通行密钥 ----------
+  const submit2faPasskey = async () => {
+    if (!fa2?.challengeId) return setErr('验证已失效，请重新登录')
+    setFa2Busy(true)
+    setErr('')
+    try {
+      const user = await authenticateWithOptions(fa2.options!, fa2.challengeId!)
+      onAuth(user)
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : '通行密钥验证失败')
+    } finally {
+      setFa2Busy(false)
     }
   }
 
@@ -209,7 +265,7 @@ export default function AuthPage({ onAuth }: { onAuth: (u: User) => void }) {
             )}
 
             {/* ===== 登录 ===== */}
-            {view === 'login' && (
+            {view === 'login' && !fa2 && (
               <>
                 <Input
                   placeholder="用户名"
@@ -250,6 +306,58 @@ export default function AuthPage({ onAuth }: { onAuth: (u: User) => void }) {
                     使用通行密钥登录
                   </button>
                 </div>
+              </>
+            )}
+
+            {/* ===== 登录第二步：双重认证 ===== */}
+            {view === 'login' && fa2 && (
+              <>
+                <div className="rounded-lg bg-indigo-50 px-3 py-2 text-sm text-indigo-700 dark:bg-indigo-950/50 dark:text-indigo-300">
+                  <ShieldCheck className="mr-1 inline h-4 w-4" />
+                  密码验证通过，请完成第二步验证
+                </div>
+                {fa2.methods.totp && (
+                  <>
+                    <Input
+                      placeholder="6 位验证码"
+                      value={totpCode}
+                      onChange={(e) => setTotpCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                      onKeyDown={(e) => e.key === 'Enter' && submitTotp()}
+                      inputMode="numeric"
+                      maxLength={6}
+                      autoComplete="one-time-code"
+                      autoFocus
+                    />
+                    <Button
+                      onClick={submitTotp}
+                      loading={fa2Busy}
+                      className="w-full py-2.5 text-base"
+                    >
+                      <KeyRound className="h-5 w-5" />
+                      验证码登录
+                    </Button>
+                  </>
+                )}
+                {fa2.methods.passkey && (
+                  <Button
+                    variant="secondary"
+                    onClick={submit2faPasskey}
+                    loading={fa2Busy}
+                    className="w-full py-2.5 text-base"
+                  >
+                    <Fingerprint className="h-5 w-5" />
+                    使用通行密钥验证
+                  </Button>
+                )}
+                <button
+                  onClick={() => {
+                    setFa2(null)
+                    setErr('')
+                  }}
+                  className="inline-flex items-center gap-1 text-sm text-slate-500 hover:text-indigo-500 dark:text-slate-400 dark:hover:text-indigo-400"
+                >
+                  <ArrowLeft className="h-4 w-4" /> 返回重新输入密码
+                </button>
               </>
             )}
 

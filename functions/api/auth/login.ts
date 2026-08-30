@@ -24,30 +24,56 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
   const ok = await verifyPassword(pw, user.password_hash as string)
   if (!ok) return error('用户名或密码错误', 401)
 
-  // 仅当用户主动开启双重认证时，密码正确后还需完成通行密钥第二步
+  // 仅当用户主动开启双重认证时，密码正确后还需完成第二步验证
+  // 第二因素可任选其一：通行密钥（WebAuthn）或验证器应用（TOTP）
   if (user.two_factor_enabled) {
     const passkeys = await env.DB.prepare('SELECT credential_id, transports FROM passkeys WHERE user_id = ?')
       .bind(user.id)
       .all()
-    if (passkeys.results.length) {
-      const { origin, rpID } = getRpInfo(request)
-      const options = await generateAuthenticationOptions({
-        rpID,
-        userVerification: 'preferred',
-        allowCredentials: passkeys.results.map((p) => ({
-          id: b64urlToBytes(p.credential_id as string),
-          type: 'public-key' as const,
-          transports: JSON.parse((p.transports as string) || '[]'),
-        })),
-      })
-      const challengeId = await storeChallenge(env, {
-        userId: user.id as string,
-        username: user.username as string,
-        challenge: options.challenge,
-        rpID,
-        origin,
-      })
-      return json({ ok: true, data: { next: '2fa', challengeId, options } })
+    const totpRow = await env.DB.prepare('SELECT totp_enabled FROM users WHERE id = ?')
+      .bind(user.id)
+      .first()
+    const methods = {
+      passkey: passkeys.results.length > 0,
+      totp: Boolean(totpRow?.totp_enabled),
+    }
+    if (methods.passkey || methods.totp) {
+      const data: { next: string; methods: typeof methods; challengeId?: string; options?: unknown; totpChallengeId?: string } = {
+        next: '2fa',
+        methods,
+      }
+      if (methods.passkey) {
+        const { origin, rpID } = getRpInfo(request)
+        const options = await generateAuthenticationOptions({
+          rpID,
+          userVerification: 'preferred',
+          allowCredentials: passkeys.results.map((p) => ({
+            id: b64urlToBytes(p.credential_id as string),
+            type: 'public-key' as const,
+            transports: JSON.parse((p.transports as string) || '[]'),
+          })),
+        })
+        const challengeId = await storeChallenge(env, {
+          userId: user.id as string,
+          username: user.username as string,
+          challenge: options.challenge,
+          rpID,
+          origin,
+        })
+        data.challengeId = challengeId
+        data.options = options
+      }
+      if (methods.totp) {
+        // 复用挑战表记录一次“密码已验证”的登录尝试，供第二步 TOTP 校验换取会话
+        const attemptId = crypto.randomUUID()
+        await env.DB.prepare(
+          'INSERT INTO webauthn_challenges (id, user_id, username, payload, created_at) VALUES (?, ?, ?, ?, ?)'
+        )
+          .bind(attemptId, user.id, user.username, JSON.stringify({ type: 'totp' }), Date.now())
+          .run()
+        data.totpChallengeId = attemptId
+      }
+      return json({ ok: true, data })
     }
   }
 
