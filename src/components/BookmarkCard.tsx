@@ -54,7 +54,7 @@ export default function BookmarkCard({
           </a>
           <p className="mt-0.5 truncate text-xs text-slate-400">{hostOf(bookmark.url)}</p>
         </div>
-        <div className="flex shrink-0 gap-0.5 opacity-0 transition group-hover:opacity-100">
+        <div className="flex shrink-0 gap-0.5 transition sm:opacity-0 sm:group-hover:opacity-100">
           <button
             onClick={onEdit}
             className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-indigo-600 dark:hover:bg-slate-800 dark:hover:text-indigo-400"

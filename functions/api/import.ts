@@ -24,8 +24,10 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
   }
 
   const base = async (table: 'folders' | 'bookmarks') => {
+    // folders 用 parent_id 关联父级，bookmarks 用 folder_id
+    const parentCol = table === 'folders' ? 'parent_id' : 'folder_id'
     const row = await env.DB.prepare(
-      `SELECT COALESCE(MAX(sort), -1) AS m FROM ${table} WHERE user_id = ? AND parent_id IS ?`
+      `SELECT COALESCE(MAX(sort), -1) AS m FROM ${table} WHERE user_id = ? AND ${parentCol} IS ?`
     )
       .bind(userId, rootFolder)
       .first()

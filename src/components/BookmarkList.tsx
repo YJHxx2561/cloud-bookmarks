@@ -39,7 +39,7 @@ function FolderCard({
       <span className="min-w-0 flex-1 truncate text-sm font-medium text-slate-700 dark:text-slate-200">
         {folder.name}
       </span>
-      <div className="flex shrink-0 gap-0.5 opacity-0 transition group-hover:opacity-100">
+      <div className="flex shrink-0 gap-0.5 transition sm:opacity-0 sm:group-hover:opacity-100">
         <button
           onClick={(e) => {
             e.stopPropagation()

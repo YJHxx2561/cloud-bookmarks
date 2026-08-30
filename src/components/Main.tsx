@@ -201,7 +201,7 @@ export default function Main({ user, onLogout }: { user: User; onLogout: () => v
     setModal({ kind: 'folder', mode: 'create', parentId: currentFolderId })
 
   return (
-    <div className="flex h-screen flex-col bg-slate-100 dark:bg-slate-950">
+    <div className="flex h-screen flex-col bg-slate-100 dark:bg-slate-950 supports-[height:100dvh]:h-dvh">
       {/* 顶栏 */}
       <header className="sticky top-0 z-30 flex h-14 shrink-0 items-center gap-2 border-b border-slate-200 bg-white/85 px-3 backdrop-blur dark:border-slate-800 dark:bg-slate-900/85 sm:px-4">
         <button
