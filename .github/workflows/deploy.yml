@@ -38,14 +38,22 @@ jobs:
         run: npm run build
 
       # ---- 确保 D1 数据库存在（不存在则自动创建，已存在则跳过） ----
-      # 每次都是全新检出，wrangler.toml 中的 database_id 是占位符，
-      # 这里从远端查询真实 ID 并写回 wrangler.toml。
+      # 直接调用 Cloudflare REST API 查询/创建，响应格式确定，不依赖 wrangler 的 stdout。
+      # 每次都是全新检出，wrangler.toml 中的 database_id 是占位符，这里写回真实 ID。
       - name: Ensure D1 database exists (create if missing)
         run: |
-          DB_ID=$(npx wrangler d1 list --json 2>/dev/null | python3 .github/scripts/d1-id.py)
+          DB_ID=$(curl -sS \
+            -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+            "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/d1/database" \
+            | python3 .github/scripts/d1-id.py bookmarks-db)
           if [ -z "$DB_ID" ]; then
             echo "::group::创建 D1 数据库 bookmarks-db"
-            DB_ID=$(npx wrangler d1 create bookmarks-db --json 2>/dev/null | python3 .github/scripts/d1-id.py)
+            DB_ID=$(curl -sS -X POST \
+              -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+              -H "Content-Type: application/json" \
+              -d '{"name":"bookmarks-db"}' \
+              "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/d1/database" \
+              | python3 .github/scripts/d1-id.py)
             echo "::endgroup::"
           else
             echo "D1 数据库 bookmarks-db 已存在，跳过创建（更新部署）"
