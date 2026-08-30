@@ -1,0 +1,77 @@
+name: Deploy to Cloudflare Pages
+
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pages-deploy
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type check
+        run: npm run typecheck
+
+      - name: Build
+        run: npm run build
+
+      # ---- 确保 D1 数据库存在（不存在则自动创建，已存在则跳过） ----
+      # 每次都是全新检出，wrangler.toml 中的 database_id 是占位符，
+      # 这里从远端查询真实 ID 并写回 wrangler.toml。
+      - name: Ensure D1 database exists (create if missing)
+        run: |
+          DB_ID=$(npx wrangler d1 list --json 2>/dev/null | python3 .github/scripts/d1-id.py)
+          if [ -z "$DB_ID" ]; then
+            echo "::group::创建 D1 数据库 bookmarks-db"
+            DB_ID=$(npx wrangler d1 create bookmarks-db --json 2>/dev/null | python3 .github/scripts/d1-id.py)
+            echo "::endgroup::"
+          else
+            echo "D1 数据库 bookmarks-db 已存在，跳过创建（更新部署）"
+          fi
+          if [ -z "$DB_ID" ]; then
+            echo "::error::无法获取 D1 数据库 ID，请确认 API Token 拥有 D1 权限"
+            exit 1
+          fi
+          sed -i "s/REPLACE_WITH_YOUR_D1_DATABASE_ID/$DB_ID/g" wrangler.toml
+          echo "database_id 已写入 wrangler.toml"
+
+      # ---- 应用 D1 迁移（建表） ----
+      - name: Apply D1 migrations (remote)
+        run: npx wrangler d1 migrations apply bookmarks-db --remote
+
+      # ---- 确保 Pages 项目存在（不存在则自动创建） ----
+      - name: Ensure Pages project exists
+        run: |
+          if npx wrangler pages project list --json 2>/dev/null | python3 .github/scripts/pages-has.py cloud-fav; then
+            echo "Pages 项目 cloud-fav 已存在，跳过创建（更新部署）"
+          else
+            echo "::group::创建 Pages 项目 cloud-fav"
+            npx wrangler pages project create cloud-fav --production-branch=main
+            echo "::endgroup::"
+          fi
+
+      # ---- 部署（wrangler.toml 中的 D1 / AI 绑定会自动生效） ----
+      - name: Deploy to Cloudflare Pages
+        run: npx wrangler pages deploy dist --project-name=cloud-fav
