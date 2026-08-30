@@ -9,8 +9,9 @@ pages_build_output_dir = "dist"
 AI_MODEL = "@cf/meta/llama-3.1-8b-instruct"
 
 # ---------- D1 数据库 ----------
-# GitHub Actions 部署时会自动创建/复用 bookmarks-db 并将真实 database_id 写入下面；
-# 本地开发或 Dashboard 面板部署时，请先运行 npx wrangler d1 create bookmarks-db 并把 ID 填入此处。
+# 先在 Cloudflare 创建数据库：npx wrangler d1 create bookmarks-db
+# GitHub Actions 部署时，把输出的 database_id 填到仓库 Secrets 的 D1_DATABASE_ID，
+# workflow 会自动把该 ID 写入下面；本地开发时请直接在此填入真实 ID。
 [[d1_databases]]
 binding = "DB"
 database_name = "bookmarks-db"

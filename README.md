@@ -48,21 +48,30 @@ cloud-fav/
 
 ### 方式一：GitHub Actions 自动部署（推荐）
 
-适合将代码托管在 GitHub 并希望推送即部署。**无需手动创建 D1 数据库**——workflow 会自动创建（或复用）数据库、写入 `database_id`、应用迁移、创建 Pages 项目并部署；已存在时自动跳过创建（即更新部署）。
+适合将代码托管在 GitHub 并希望推送即部署。workflow 会把仓库 Secret `D1_DATABASE_ID` 写入 `wrangler.toml`，然后自动应用迁移、创建 Pages 项目并部署。
 
-1. **推送代码到 GitHub** 仓库。
+1. **创建 D1 数据库**（本地装有 [wrangler](https://developers.cloudflare.com/workers/wrangler/) 且已登录）：
 
-2. **配置 Actions Secrets**（仓库 → Settings → Secrets and variables → Actions）：
-   - `CLOUDFLARE_API_TOKEN`：在 Cloudflare 控制台 → My Profile → API Tokens 创建，权限需包含 **Cloudflare Pages — Edit** 与 **D1 — Edit**（workflow 会自动创建 D1 数据库）
+   ```bash
+   npx wrangler d1 create bookmarks-db
+   ```
+
+   记下输出的 `database_id`。
+
+2. **推送代码到 GitHub** 仓库。
+
+3. **配置 Actions Secrets**（仓库 → Settings → Secrets and variables → Actions）：
+   - `CLOUDFLARE_API_TOKEN`：在 Cloudflare 控制台 → My Profile → API Tokens 创建，权限需包含 **Cloudflare Pages — Edit** 与 **D1 — Edit**
    - `CLOUDFLARE_ACCOUNT_ID`：Cloudflare 控制台首页右侧的 Account ID
+   - `D1_DATABASE_ID`：第 1 步得到的数据库 ID
 
-3. **启用 Workers AI**：在 Cloudflare 控制台 → **Workers AI** 页面开通（免费额度可用）。
+4. **启用 Workers AI**：在 Cloudflare 控制台 → **Workers AI** 页面开通（免费额度可用）。
    `wrangler.toml` 中已配置 `[[ai]] binding = "AI"`，部署时自动生效，无需额外操作。
 
-4. **推送 / 手动触发 workflow**：`.github/workflows/deploy.yml` 会自动依次执行：
-   构建 → 创建/复用 D1 数据库 → 应用迁移建表 → 创建/复用 Pages 项目 → `wrangler pages deploy`。
+5. **推送 / 手动触发 workflow**：`.github/workflows/deploy.yml` 会自动依次执行：
+   构建 → 写入 D1 数据库 ID → 应用迁移建表 → 创建/复用 Pages 项目 → `wrangler pages deploy`。
 
-   > `wrangler.toml` 中的 `database_id` 占位符会在 workflow 内被自动替换为真实 ID，无需手动修改。
+   > `wrangler.toml` 中的 `database_id` 占位符会在 workflow 内被自动替换为 Secret 中的真实 ID，无需手动修改。
 
 ### 方式二：Cloudflare Dashboard 面板连接 GitHub 部署
 
